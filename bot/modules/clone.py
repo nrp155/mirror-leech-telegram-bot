@@ -41,16 +41,16 @@ from bot.helper.telegram_helper.message_utils import (
 
 class Clone(TaskListener):
     def __init__(
-            self,
-            client,
-            message,
-            _=None,
-            __=None,
-            ___=None,
-            ____=None,
-            bulk=None,
-            multiTag=None,
-            options="",
+        self,
+        client,
+        message,
+        _=None,
+        __=None,
+        ___=None,
+        ____=None,
+        bulk=None,
+        multiTag=None,
+        options="",
     ):
         if bulk is None:
             bulk = []
@@ -127,7 +127,7 @@ class Clone(TaskListener):
                     return
         if is_gdrive_link(self.link) or is_gdrive_id(self.link):
             self.name, mime_type, size, files, _ = await sync_to_async(
-                gdCount().count, self.link, self.user_id
+                gdCount().count, self.link, self.userId
             )
             if mime_type is None:
                 await sendMessage(self.message, self.name)
@@ -165,7 +165,7 @@ class Clone(TaskListener):
             if self.link.startswith("mrcc:"):
                 self.link = self.link.replace("mrcc:", "", 1)
                 self.upDest = self.upDest.replace("mrcc:", "", 1)
-                config_path = f"rclone/{self.user_id}.conf"
+                config_path = f"rclone/{self.userId}.conf"
             else:
                 config_path = "rclone.conf"
 

@@ -90,11 +90,11 @@ async def path_updates(_, query, obj):
             if obj.config_path == "rclone.conf"
             else f"mrcc:{obj.remote}{obj.path}"
         )
-        if path != obj.listener.user_dict.get("rclone_path"):
-            update_user_ldata(obj.listener.user_id, "rclone_path", path)
+        if path != obj.listener.userDict.get("rclone_path"):
+            update_user_ldata(obj.listener.userId, "rclone_path", path)
             await obj.get_path_buttons()
             if config_dict["DATABASE_URL"]:
-                await DbManager().update_user_data(obj.listener.user_id)
+                await DbManager().update_user_data(obj.listener.userId)
     elif data[1] == "owner":
         obj.config_path = "rclone.conf"
         obj.path = ""
@@ -122,7 +122,7 @@ class RcloneList:
         self.query_proc = False
         self.item_type = "--dirs-only"
         self.event = Event()
-        self.user_rcc_path = f"rclone/{self.listener.user_id}.conf"
+        self.user_rcc_path = f"rclone/{self.listener.userId}.conf"
         self.config_path = ""
         self.path = ""
         self.list_status = ""
@@ -135,7 +135,7 @@ class RcloneList:
         pfunc = partial(path_updates, obj=self)
         handler = self.listener.client.add_handler(
             CallbackQueryHandler(
-                pfunc, filters=regex("^rcq") & user(self.listener.user_id)
+                pfunc, filters=regex("^rcq") & user(self.listener.userId)
             ),
             group=-1,
         )
@@ -166,7 +166,7 @@ class RcloneList:
         page = (self.iter_start / LIST_LIMIT) + 1 if self.iter_start != 0 else 1
         buttons = ButtonMaker()
         for index, idict in enumerate(
-                self.path_list[self.iter_start: LIST_LIMIT + self.iter_start]
+            self.path_list[self.iter_start : LIST_LIMIT + self.iter_start]
         ):
             orig_index = index + self.iter_start
             if idict["IsDir"]:
@@ -268,7 +268,9 @@ class RcloneList:
                 else "\nTransfer Type: <i>Upload</i>"
             )
             msg += f"\nConfig Path: {self.config_path}"
-            msg += f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            msg += (
+                f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            )
             buttons = ButtonMaker()
             for remote in self._sections:
                 buttons.ibutton(remote, f"rcq re {remote}:")
@@ -285,7 +287,9 @@ class RcloneList:
                 if self.list_status == "rcd"
                 else "\nTransfer Type: Upload"
             )
-            msg += f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            msg += (
+                f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            )
             buttons = ButtonMaker()
             buttons.ibutton("Owner Config", "rcq owner")
             buttons.ibutton("My Config", "rcq user")

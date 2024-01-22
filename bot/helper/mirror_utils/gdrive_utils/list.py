@@ -83,11 +83,11 @@ async def id_updates(_, query, obj):
         obj.event.set()
     elif data[1] == "def":
         id_ = obj.id if obj.token_path != obj.user_token_path else f"mtp:{obj.id}"
-        if id_ != obj.listener.user_dict.get("gdrive_id"):
-            update_user_ldata(obj.listener.user_id, "gdrive_id", id_)
+        if id_ != obj.listener.userDict.get("gdrive_id"):
+            update_user_ldata(obj.listener.userId, "gdrive_id", id_)
             await obj.get_items_buttons()
             if config_dict["DATABASE_URL"]:
-                await DbManager().update_user_data(obj.listener.user_id)
+                await DbManager().update_user_data(obj.listener.userId)
     elif data[1] == "owner":
         obj.token_path = "token.pickle"
         obj.use_sa = False
@@ -122,7 +122,7 @@ class gdriveList(GoogleDriveHelper):
         self.query_proc = False
         self.item_type = "folders"
         self.event = Event()
-        self.user_token_path = f"tokens/{self.listener.user_id}.pickle"
+        self.user_token_path = f"tokens/{self.listener.userId}.pickle"
         self.id = ""
         self.parents = []
         self.list_status = ""
@@ -136,7 +136,7 @@ class gdriveList(GoogleDriveHelper):
         pfunc = partial(id_updates, obj=self)
         handler = self.listener.client.add_handler(
             CallbackQueryHandler(
-                pfunc, filters=regex("^gdq") & user(self.listener.user_id)
+                pfunc, filters=regex("^gdq") & user(self.listener.userId)
             ),
             group=-1,
         )
@@ -166,7 +166,7 @@ class gdriveList(GoogleDriveHelper):
         page = (self.iter_start / LIST_LIMIT) + 1 if self.iter_start != 0 else 1
         buttons = ButtonMaker()
         for index, item in enumerate(
-                self.items_list[self.iter_start: LIST_LIMIT + self.iter_start]
+            self.items_list[self.iter_start : LIST_LIMIT + self.iter_start]
         ):
             orig_index = index + self.iter_start
             if item["mimeType"] == self.G_DRIVE_DIR_MIME_TYPE:
@@ -191,10 +191,10 @@ class gdriveList(GoogleDriveHelper):
         if self.list_status == "gdu":
             buttons.ibutton("Set as Default Path", "gdq def", position="footer")
         if (
-                len(self.parents) > 1
-                and len(self.drives) > 1
-                or self._token_user
-                and self._token_owner
+            len(self.parents) > 1
+            and len(self.drives) > 1
+            or self._token_user
+            and self._token_owner
         ):
             buttons.ibutton("Back", "gdq back pa", position="footer")
         if len(self.parents) > 1:
@@ -208,7 +208,7 @@ class gdriveList(GoogleDriveHelper):
         )
         if self.list_status == "gdu":
             default_id = (
-                    self.listener.user_dict.get("gdrive_id") or config_dict["GDRIVE_ID"]
+                self.listener.userDict.get("gdrive_id") or config_dict["GDRIVE_ID"]
             )
             msg += f"\nDefault Gdrive ID: {default_id}" if default_id else ""
         msg += f"\n\nItems: {items_no}"
@@ -277,7 +277,9 @@ class gdriveList(GoogleDriveHelper):
                 else "\nTransfer Type: <i>Upload</i>"
             )
             msg += f"\nToken Path: {self.token_path}"
-            msg += f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            msg += (
+                f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            )
             buttons = ButtonMaker()
             self.drives.clear()
             self.parents.clear()
@@ -295,19 +297,21 @@ class gdriveList(GoogleDriveHelper):
 
     async def choose_token(self):
         if (
-                self._token_user
-                and self._token_owner
-                or self._sa_owner
-                and self._token_owner
-                or self._sa_owner
-                and self._token_user
+            self._token_user
+            and self._token_owner
+            or self._sa_owner
+            and self._token_owner
+            or self._sa_owner
+            and self._token_user
         ):
             msg = "Choose Token:" + (
                 "\nTransfer Type: Download"
                 if self.list_status == "gdd"
                 else "\nTransfer Type: Upload"
             )
-            msg += f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            msg += (
+                f"\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
+            )
             buttons = ButtonMaker()
             if self._token_owner:
                 buttons.ibutton("Owner Token", "gdq owner")

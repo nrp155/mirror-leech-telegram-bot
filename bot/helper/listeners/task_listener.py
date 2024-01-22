@@ -1,6 +1,6 @@
 from aiofiles.os import path as aiopath, listdir, makedirs
 from aioshutil import move
-from asyncio import sleep, Event, gather
+from asyncio import sleep, gather
 from html import escape
 from requests import utils as rutils
 
@@ -30,7 +30,7 @@ from bot.helper.ext_utils.files_utils import (
 )
 from bot.helper.ext_utils.links_utils import is_gdrive_id
 from bot.helper.ext_utils.status_utils import get_readable_file_size
-from bot.helper.ext_utils.task_manager import start_from_queued
+from bot.helper.ext_utils.task_manager import start_from_queued, check_running_tasks
 from bot.helper.mirror_utils.gdrive_utils.upload import gdUpload
 from bot.helper.mirror_utils.rclone_utils.transfer import RcloneTransferHelper
 from bot.helper.mirror_utils.status_utils.gdrive_status import GdriveStatus
@@ -67,9 +67,9 @@ class TaskListener(TaskConfig):
 
     async def onDownloadStart(self):
         if (
-                self.isSuperChat
-                and config_dict["INCOMPLETE_TASK_NOTIFIER"]
-                and DATABASE_URL
+            self.isSuperChat
+            and config_dict["INCOMPLETE_TASK_NOTIFIER"]
+            and DATABASE_URL
         ):
             await DbManager().add_incomplete_task(
                 self.message.chat.id, self.message.link, self.tag
@@ -79,17 +79,17 @@ class TaskListener(TaskConfig):
         multi_links = False
         if self.sameDir and self.mid in self.sameDir["tasks"]:
             while not (
-                    self.sameDir["total"] in [1, 0]
-                    or self.sameDir["total"] > 1
-                    and len(self.sameDir["tasks"]) > 1
+                self.sameDir["total"] in [1, 0]
+                or self.sameDir["total"] > 1
+                and len(self.sameDir["tasks"]) > 1
             ):
                 await sleep(0.5)
 
         async with task_dict_lock:
             if (
-                    self.sameDir
-                    and self.sameDir["total"] > 1
-                    and self.mid in self.sameDir["tasks"]
+                self.sameDir
+                and self.sameDir["total"] > 1
+                and self.mid in self.sameDir["tasks"]
             ):
                 self.sameDir["tasks"].remove(self.mid)
                 self.sameDir["total"] -= 1
@@ -140,21 +140,28 @@ class TaskListener(TaskConfig):
 
         if self.extract:
             up_path = await self.proceedExtract(up_path, size, gid)
-            if not up_path:
+            if self.cancelled:
                 return
             up_dir, self.name = up_path.rsplit("/", 1)
             size = await get_path_size(up_dir)
 
+        if self.convertAudio or self.convertVideo:
+            up_dir, self.name = up_path.rsplit("/", 1)
+            await self.convertMedia(up_dir, size, gid)
+            if self.cancelled:
+                return
+            size = await get_path_size(up_dir)
+
         if self.sampleVideo:
             up_path = await self.generateSampleVideo(up_path, size, gid)
-            if not up_path:
+            if self.cancelled:
                 return
             up_dir, self.name = up_path.rsplit("/", 1)
             size = await get_path_size(up_dir)
 
         if self.compress:
             up_path = await self.proceedCompress(up_path, size, gid)
-            if not up_path:
+            if self.cancelled:
                 return
 
         up_dir, self.name = up_path.rsplit("/", 1)
@@ -164,33 +171,22 @@ class TaskListener(TaskConfig):
             m_size = []
             o_files = []
             if not self.compress:
-                result = await self.proceedSplit(up_dir, m_size, o_files, size, gid)
-                if not result:
+                await self.proceedSplit(up_dir, m_size, o_files, size, gid)
+                if self.cancelled:
                     return
 
-        up_limit = config_dict["QUEUE_UPLOAD"]
-        all_limit = config_dict["QUEUE_ALL"]
-        add_to_queue = False
-        async with queue_dict_lock:
-            if self.mid in non_queued_dl:
-                non_queued_dl.remove(self.mid)
-            dl = len(non_queued_dl)
-            up = len(non_queued_up)
-            if (
-                    all_limit and dl + up >= all_limit and (not up_limit or up >= up_limit)
-            ) or (up_limit and up >= up_limit):
-                add_to_queue = True
+        if not (self.forceRun or self.forceUpload):
+            add_to_queue, event = await check_running_tasks(self.mid, "up")
+            await start_from_queued()
+            if add_to_queue:
                 LOGGER.info(f"Added to Queue/Upload: {self.name}")
-                event = Event()
-                queued_up[self.mid] = event
-        if add_to_queue:
-            async with task_dict_lock:
-                task_dict[self.mid] = QueueStatus(self, size, gid, "Up")
-            await event.wait()
-            async with task_dict_lock:
-                if self.mid not in task_dict:
-                    return
-            LOGGER.info(f"Start from Queued/Upload: {self.name}")
+                async with task_dict_lock:
+                    task_dict[self.mid] = QueueStatus(self, size, gid, "Up")
+                await event.wait()
+                async with task_dict_lock:
+                    if self.mid not in task_dict:
+                        return
+                LOGGER.info(f"Start from Queued/Upload: {self.name}")
         async with queue_dict_lock:
             non_queued_up.add(self.mid)
 
@@ -228,12 +224,12 @@ class TaskListener(TaskConfig):
             )
 
     async def onUploadComplete(
-            self, link, size, files, folders, mime_type, rclonePath="", dir_id=""
+        self, link, size, files, folders, mime_type, rclonePath="", dir_id=""
     ):
         if (
-                self.isSuperChat
-                and config_dict["INCOMPLETE_TASK_NOTIFIER"]
-                and DATABASE_URL
+            self.isSuperChat
+            and config_dict["INCOMPLETE_TASK_NOTIFIER"]
+            and DATABASE_URL
         ):
             await DbManager().rm_complete_task(self.message.link)
         msg = f"<b>Name: </b><code>{escape(self.name)}</code>\n\n<b>Size: </b>{get_readable_file_size(size)}"
@@ -269,10 +265,10 @@ class TaskListener(TaskConfig):
                 msg += f"\n<b>SubFolders: </b>{folders}"
                 msg += f"\n<b>Files: </b>{files}"
             if (
-                    link
-                    or rclonePath
-                    and config_dict["RCLONE_SERVE_URL"]
-                    and not self.privateLink
+                link
+                or rclonePath
+                and config_dict["RCLONE_SERVE_URL"]
+                and not self.privateLink
             ):
                 buttons = ButtonMaker()
                 if link:
@@ -280,9 +276,9 @@ class TaskListener(TaskConfig):
                 else:
                     msg += f"\n\nPath: <code>{rclonePath}</code>"
                 if (
-                        rclonePath
-                        and (RCLONE_SERVE_URL := config_dict["RCLONE_SERVE_URL"])
-                        and not self.privateLink
+                    rclonePath
+                    and (RCLONE_SERVE_URL := config_dict["RCLONE_SERVE_URL"])
+                    and not self.privateLink
                 ):
                     remote, path = rclonePath.split(":", 1)
                     url_path = rutils.quote(f"{path}")
@@ -293,11 +289,7 @@ class TaskListener(TaskConfig):
                 if not rclonePath and dir_id:
                     INDEX_URL = ""
                     if self.privateLink:
-                        INDEX_URL = (
-                            self.user_dict["index_url"]
-                            if self.user_dict.get("index_url")
-                            else ""
-                        )
+                        INDEX_URL = self.userDict.get("index_url", "") or ""
                     elif config_dict["INDEX_URL"]:
                         INDEX_URL = config_dict["INDEX_URL"]
                     if INDEX_URL:
@@ -353,9 +345,9 @@ class TaskListener(TaskConfig):
             await update_status_message(self.message.chat.id)
 
         if (
-                self.isSuperChat
-                and config_dict["INCOMPLETE_TASK_NOTIFIER"]
-                and DATABASE_URL
+            self.isSuperChat
+            and config_dict["INCOMPLETE_TASK_NOTIFIER"]
+            and DATABASE_URL
         ):
             await DbManager().rm_complete_task(self.message.link)
 
@@ -389,9 +381,9 @@ class TaskListener(TaskConfig):
             await update_status_message(self.message.chat.id)
 
         if (
-                self.isSuperChat
-                and config_dict["INCOMPLETE_TASK_NOTIFIER"]
-                and DATABASE_URL
+            self.isSuperChat
+            and config_dict["INCOMPLETE_TASK_NOTIFIER"]
+            and DATABASE_URL
         ):
             await DbManager().rm_complete_task(self.message.link)
 

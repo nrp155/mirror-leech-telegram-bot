@@ -4,7 +4,7 @@ from secrets import token_urlsafe
 
 from bot import task_dict, task_dict_lock, queue_dict_lock, non_queued_dl, LOGGER
 from bot.helper.ext_utils.bot_utils import cmd_exec
-from bot.helper.ext_utils.task_manager import is_queued, stop_duplicate_check
+from bot.helper.ext_utils.task_manager import check_running_tasks, stop_duplicate_check
 from bot.helper.mirror_utils.rclone_utils.transfer import RcloneTransferHelper
 from bot.helper.mirror_utils.status_utils.queue_status import QueueStatus
 from bot.helper.mirror_utils.status_utils.rclone_status import RcloneStatus
@@ -14,7 +14,7 @@ from bot.helper.telegram_helper.message_utils import sendStatusMessage
 async def add_rclone_download(listener, path):
     if listener.link.startswith("mrcc:"):
         listener.link = listener.link.split("mrcc:", 1)[1]
-        config_path = f"rclone/{listener.user_id}.conf"
+        config_path = f"rclone/{listener.userId}.conf"
     else:
         config_path = "rclone.conf"
 
@@ -70,21 +70,21 @@ async def add_rclone_download(listener, path):
         await listener.onDownloadError(msg, button)
         return
 
-    add_to_queue, event = await is_queued(listener.mid)
-    if add_to_queue:
-        LOGGER.info(f"Added to Queue/Download: {listener.name}")
-        async with task_dict_lock:
-            task_dict[listener.mid] = QueueStatus(listener, size, gid, "dl")
-        await listener.onDownloadStart()
-        if listener.multi <= 1:
-            await sendStatusMessage(listener.message)
-        await event.wait()
-        async with task_dict_lock:
-            if listener.mid not in task_dict:
-                return
-        from_queue = True
+    if not (listener.forceRun or listener.forceDownload):
+        add_to_queue, event = await check_running_tasks(listener.mid)
+        if add_to_queue:
+            LOGGER.info(f"Added to Queue/Download: {listener.name}")
+            async with task_dict_lock:
+                task_dict[listener.mid] = QueueStatus(listener, size, gid, "dl")
+            await listener.onDownloadStart()
+            if listener.multi <= 1:
+                await sendStatusMessage(listener.message)
+            await event.wait()
+            async with task_dict_lock:
+                if listener.mid not in task_dict:
+                    return
     else:
-        from_queue = False
+        add_to_queue = False
 
     RCTransfer = RcloneTransferHelper(listener)
     async with task_dict_lock:
@@ -92,7 +92,7 @@ async def add_rclone_download(listener, path):
     async with queue_dict_lock:
         non_queued_dl.add(listener.mid)
 
-    if from_queue:
+    if add_to_queue:
         LOGGER.info(f"Start Queued Download with rclone: {listener.link}")
     else:
         await listener.onDownloadStart()
